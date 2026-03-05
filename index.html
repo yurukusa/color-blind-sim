@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Color Blind Sim — Color Blindness Simulator</title>
+<meta name="description" content="Simulate how images look to colorblind users. 8 types of color vision deficiency. Upload any image.">
+<meta property="og:title" content="Color Blind Sim — Color Blindness Simulator">
+<meta property="og:description" content="Simulate how images look to colorblind users. 8 types of color vision deficiency. Upload any image.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://yurukusa.github.io/color-blind-sim/">
+<meta property="og:image" content="https://yurukusa.github.io/color-blind-sim/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Color Blind Sim — Color Blindness Simulator">
+<meta name="twitter:description" content="Simulate how images look to colorblind users. 8 types of color vision deficiency. Upload any image.">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#e6edf3;--text2:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;--yellow:#d29922}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+header{text-align:center;padding:2rem 1rem 1rem;border-bottom:1px solid var(--border)}
+header h1{font-size:1.8rem;margin-bottom:.4rem}
+header p{color:var(--text2);font-size:.95rem}
+main{flex:1;max-width:1400px;margin:0 auto;padding:1.5rem;width:100%}
+.upload-zone{border:2px dashed var(--border);border-radius:12px;padding:3rem 2rem;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;margin-bottom:1.5rem}
+.upload-zone:hover,.upload-zone.dragover{border-color:var(--accent);background:rgba(88,166,255,.06)}
+.upload-zone svg{margin-bottom:1rem}
+.upload-zone p{color:var(--text2);margin-top:.5rem;font-size:.9rem}
+.upload-zone input{display:none}
+.controls{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1.5rem;align-items:center}
+.controls label{display:flex;align-items:center;gap:.4rem;padding:.4rem .8rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:.82rem;transition:border-color .2s;user-select:none}
+.controls label:hover{border-color:var(--accent)}
+.controls label input{accent-color:var(--accent)}
+.controls label .pop{color:var(--text2);font-size:.72rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+.card.hidden{display:none}
+.card-header{display:flex;justify-content:space-between;align-items:center;padding:.6rem .8rem;border-bottom:1px solid var(--border)}
+.card-header h3{font-size:.85rem;font-weight:600}
+.card-header span{font-size:.72rem;color:var(--text2)}
+.card canvas{width:100%;display:block;background:#000}
+.card-actions{padding:.5rem .8rem;display:flex;justify-content:flex-end}
+.btn{background:var(--surface);color:var(--text);border:1px solid var(--border);padding:.35rem .7rem;border-radius:6px;cursor:pointer;font-size:.78rem;transition:border-color .2s}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+footer{text-align:center;padding:1.5rem;border-top:1px solid var(--border);color:var(--text2);font-size:.85rem}
+footer a{color:var(--accent);text-decoration:none}
+footer a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<header>
+<h1>Color Blind Sim</h1>
+<p>Simulate how images look to colorblind users. 8 types of color vision deficiency.</p>
+</header>
+<main>
+<div class="upload-zone" id="dropZone">
+<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+<p><strong style="color:var(--accent)">Click to upload</strong> or drag &amp; drop an image</p>
+<p>PNG, JPG, WebP, SVG — processed entirely in your browser</p>
+<input type="file" id="fileInput" accept="image/*">
+</div>
+<div class="controls" id="controls"></div>
+<div class="grid" id="grid"></div>
+</main>
+<footer>
+<a href="https://yurukusa.github.io/dev-toolkit/">Dev Toolkit</a> — 66+ free browser-based developer tools
+</footer>
+<script>
+// Color blindness simulation matrices (Brettel/Vienot/Machado methods)
+// sRGB linearization and delinearization
+function sRGBtoLinear(c){c/=255;return c<=.04045?c/12.92:Math.pow((c+.055)/1.055,2.4)}
+function linearToSRGB(c){c=Math.max(0,Math.min(1,c));return Math.round((c<=.0031308?12.92*c:1.055*Math.pow(c,1/2.4)-.055)*255)}
+
+// Simulation matrices — Vienot 1999 for protan/deutan, Brettel 1997 for tritan,
+// Machado 2009 anomalous trichromacy (severity ~0.6 for anomaly types)
+const TYPES=[
+{id:'normal',name:'Normal Vision',matrix:null,pop:'~95%',desc:'Trichromatic'},
+{id:'protanopia',name:'Protanopia',pop:'~1% males',desc:'No red cones',matrix:[
+ .152286,.114503,.732211,
+ .114503,.00923045,.876267,
+ .00595420,-.00230373,1.00635
+]},
+{id:'deuteranopia',name:'Deuteranopia',pop:'~1% males',desc:'No green cones',matrix:[
+ .367322,.860646,-.228068,
+ .280085,.672501,.047413,
+ -.011820,.042940,.968881
+]},
+{id:'tritanopia',name:'Tritanopia',pop:'~0.003%',desc:'No blue cones',matrix:[
+ 1.255528,-.076749,-.178779,
+ -.078411,.930809,.147602,
+ .004733,.691367,.303900
+]},
+{id:'achromatopsia',name:'Achromatopsia',pop:'~0.003%',desc:'Complete color blindness',matrix:[
+ .2126,.7152,.0722,
+ .2126,.7152,.0722,
+ .2126,.7152,.0722
+]},
+{id:'protanomaly',name:'Protanomaly',pop:'~1% males',desc:'Reduced red sensitivity',matrix:[
+ .458064,.135930,.406006,
+ .078451,.459845,.461705,
+ -.003652,-.000393,1.004045
+]},
+{id:'deuteranomaly',name:'Deuteranomaly',pop:'~5% males',desc:'Reduced green (most common)',matrix:[
+ .547494,.607765,-.155259,
+ .181693,.781477,.036830,
+ -.010410,.027275,.983136
+]},
+{id:'tritanomaly',name:'Tritanomaly',pop:'~0.001%',desc:'Reduced blue sensitivity',matrix:[
+ 1.017277,.027029,-.044306,
+ -.006113,.958479,.047634,
+ .006379,.248708,.744913
+]}
+];
+
+const grid=document.getElementById('grid');
+const controls=document.getElementById('controls');
+const dropZone=document.getElementById('dropZone');
+const fileInput=document.getElementById('fileInput');
+let sourceCanvas=null;
+let sourceImageData=null;
+const canvases={};
+const enabled={};
+
+// Build controls and cards
+TYPES.forEach(t=>{
+ enabled[t.id]=true;
+ const label=document.createElement('label');
+ const cb=document.createElement('input');
+ cb.type='checkbox';cb.checked=true;
+ cb.addEventListener('change',()=>{enabled[t.id]=cb.checked;toggleCard(t.id)});
+ label.appendChild(cb);
+ label.appendChild(document.createTextNode(' '+t.name+' '));
+ const pop=document.createElement('span');pop.className='pop';pop.textContent=t.pop;
+ label.appendChild(pop);
+ controls.appendChild(label);
+
+ const card=document.createElement('div');
+ card.className='card';card.id='card-'+t.id;
+ card.innerHTML=`<div class="card-header"><h3>${t.name}</h3><span>${t.desc} · ${t.pop}</span></div>`;
+ const cvs=document.createElement('canvas');
+ canvases[t.id]=cvs;
+ card.appendChild(cvs);
+ const actions=document.createElement('div');
+ actions.className='card-actions';
+ const dl=document.createElement('button');
+ dl.className='btn';dl.textContent='Download';
+ dl.addEventListener('click',()=>downloadCanvas(cvs,t.id));
+ actions.appendChild(dl);
+ card.appendChild(actions);
+ grid.appendChild(card);
+});
+
+function toggleCard(id){
+ const card=document.getElementById('card-'+id);
+ card.classList.toggle('hidden',!enabled[id]);
+}
+
+// Drag & drop
+dropZone.addEventListener('click',()=>fileInput.click());
+dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('dragover')});
+dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop',e=>{e.preventDefault();dropZone.classList.remove('dragover');if(e.dataTransfer.files.length)loadImage(e.dataTransfer.files[0])});
+fileInput.addEventListener('change',e=>{if(e.target.files.length)loadImage(e.target.files[0])});
+
+function loadImage(file){
+ const img=new Image();
+ img.onload=()=>{processImage(img);URL.revokeObjectURL(img.src)};
+ img.src=URL.createObjectURL(file);
+}
+
+function processImage(img){
+ const w=img.naturalWidth||img.width;
+ const h=img.naturalHeight||img.height;
+ // Create source canvas
+ const sc=document.createElement('canvas');sc.width=w;sc.height=h;
+ const sctx=sc.getContext('2d');sctx.drawImage(img,0,0);
+ sourceImageData=sctx.getImageData(0,0,w,h);
+ TYPES.forEach(t=>{
+  const cvs=canvases[t.id];cvs.width=w;cvs.height=h;
+  applySimulation(cvs,sourceImageData,t);
+ });
+}
+
+function applySimulation(canvas,srcData,type){
+ const ctx=canvas.getContext('2d');
+ const w=srcData.width,h=srcData.height;
+ const out=ctx.createImageData(w,h);
+ const src=srcData.data,dst=out.data;
+ const m=type.matrix;
+ if(!m){
+  // Normal — copy
+  dst.set(src);
+ }else{
+  for(let i=0;i<src.length;i+=4){
+   const lr=sRGBtoLinear(src[i]);
+   const lg=sRGBtoLinear(src[i+1]);
+   const lb=sRGBtoLinear(src[i+2]);
+   dst[i]=linearToSRGB(m[0]*lr+m[1]*lg+m[2]*lb);
+   dst[i+1]=linearToSRGB(m[3]*lr+m[4]*lg+m[5]*lb);
+   dst[i+2]=linearToSRGB(m[6]*lr+m[7]*lg+m[8]*lb);
+   dst[i+3]=src[i+3];
+  }
+ }
+ ctx.putImageData(out,0,0);
+}
+
+function downloadCanvas(canvas,id){
+ const a=document.createElement('a');
+ a.download='colorblind-'+id+'.png';
+ a.href=canvas.toDataURL('image/png');
+ a.click();
+}
+
+// Generate default color test pattern
+function generateTestPattern(){
+ const w=800,h=400;
+ const img=document.createElement('canvas');img.width=w;img.height=h;
+ const ctx=img.getContext('2d');
+ // Rainbow gradient top half
+ const grad=ctx.createLinearGradient(0,0,w,0);
+ grad.addColorStop(0,'#ff0000');grad.addColorStop(.17,'#ff8800');
+ grad.addColorStop(.33,'#ffff00');grad.addColorStop(.5,'#00cc00');
+ grad.addColorStop(.67,'#0088ff');grad.addColorStop(.83,'#8800ff');
+ grad.addColorStop(1,'#ff00ff');
+ ctx.fillStyle=grad;ctx.fillRect(0,0,w,h/2);
+ // Saturation gradient bottom-left
+ for(let x=0;x<w/2;x++){
+  const hue=(x/(w/2))*360;
+  for(let y=h/2;y<h;y++){
+   const sat=100;
+   const light=20+((y-h/2)/(h/2))*60;
+   ctx.fillStyle=`hsl(${hue},${sat}%,${light}%)`;
+   ctx.fillRect(x,y,1,1);
+  }
+ }
+ // Gray ramp bottom-right
+ for(let x=w/2;x<w;x++){
+  const v=Math.round(((x-w/2)/(w/2))*255);
+  ctx.fillStyle=`rgb(${v},${v},${v})`;
+  ctx.fillRect(x,h/2,1,h/2);
+ }
+ // Color swatches overlay
+ const colors=['#e74c3c','#e67e22','#f1c40f','#2ecc71','#3498db','#9b59b6','#1abc9c','#ecf0f1'];
+ const sw=w/colors.length;
+ colors.forEach((c,i)=>{
+  ctx.fillStyle=c;
+  ctx.fillRect(i*sw+10,h/2+10,sw-20,40);
+  ctx.strokeStyle='rgba(255,255,255,.3)';ctx.strokeRect(i*sw+10,h/2+10,sw-20,40);
+ });
+ // Ishihara-style dots
+ ctx.fillStyle='#27ae60';
+ for(let i=0;i<60;i++){
+  const cx=w/2+Math.random()*w/2-w/4;
+  const cy=h*0.15+Math.random()*h*0.2;
+  ctx.beginPath();ctx.arc(cx,cy,3+Math.random()*6,0,Math.PI*2);ctx.fill();
+ }
+ ctx.fillStyle='#c0392b';
+ for(let i=0;i<40;i++){
+  const cx=w/2+Math.random()*w/4-w/8;
+  const cy=h*0.15+Math.random()*h*0.15;
+  ctx.beginPath();ctx.arc(cx,cy,3+Math.random()*5,0,Math.PI*2);ctx.fill();
+ }
+ // Text labels
+ ctx.fillStyle='rgba(255,255,255,.7)';ctx.font='14px sans-serif';
+ ctx.fillText('Rainbow Gradient',10,20);
+ ctx.fillText('Hue × Lightness',10,h/2+70);
+ ctx.fillText('Gray Ramp',w/2+10,h/2+70);
+ ctx.fillText('Red-Green Dots',w/2-60,20);
+
+ const imgEl=new Image();
+ imgEl.onload=()=>processImage(imgEl);
+ imgEl.src=img.toDataURL();
+}
+
+generateTestPattern();
+</script>
+</body>
+</html>
